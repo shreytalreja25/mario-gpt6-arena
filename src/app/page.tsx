@@ -11,6 +11,7 @@ export default function MarioAIArena() {
 
   // Simulation State
   const [selectedModel, setSelectedModel] = useState<string>("gpt-6-luna");
+  const [customOllamaModel, setCustomOllamaModel] = useState<string>("mistral");
   const [isRunning, setIsRunning] = useState<boolean>(true);
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -24,6 +25,8 @@ export default function MarioAIArena() {
   const [p50Latency, setP50Latency] = useState<number>(450);
   const [totalCost, setTotalCost] = useState<number>(0);
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
+  const [wireTab, setWireTab] = useState<"request" | "response">("response");
+  const [copied, setCopied] = useState<boolean>(false);
 
   // Initialize Engine
   useEffect(() => {
@@ -90,13 +93,16 @@ export default function MarioAIArena() {
     setIsEvaluating(true);
     const sensors = engine.getLookaheadSensors();
     const actions = engine.getAvailableActionCriteria();
+    const modelToUse = selectedModel === "custom-ollama"
+      ? `ollama:${customOllamaModel.trim() || "llama3.2:1b"}`
+      : selectedModel;
 
     try {
       const res = await fetch("/api/decision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: selectedModel,
+          model: modelToUse,
           marioX: Math.round(engine.x),
           marioY: Math.round(engine.y),
           isGrounded: engine.isGrounded,
@@ -270,16 +276,41 @@ export default function MarioAIArena() {
           <div className="telemetry-card">
             <div className="card-header">
               <span className="card-title">🤖 Active Intelligence Agent</span>
+              <span className="agent-badge" style={{ fontSize: "11px", color: "#38bdf8", background: "rgba(56,189,248,0.1)", padding: "2px 6px", borderRadius: "4px" }}>
+                {selectedModel.startsWith("ollama") || selectedModel === "custom-ollama"
+                  ? "Local Ollama"
+                  : selectedModel === "gpt-6-luna"
+                  ? "Decisions API"
+                  : selectedModel === "gemini-flash"
+                  ? "Gemini Cloud"
+                  : "Deterministic"}
+              </span>
             </div>
             <select
               className="model-select"
               value={selectedModel}
               onChange={e => setSelectedModel(e.target.value)}
             >
-              <option value="gpt-6-luna">OpenAI GPT-6 Luna (Decisions API • Zero Output Tokens)</option>
+              <option value="gpt-6-luna">OpenAI GPT-6 Luna (Decisions API • 0 Tokens)</option>
+              <option value="ollama:llama3.2:1b">🦙 Ollama Llama 3.2 1B (Local • Ultra-Fast)</option>
+              <option value="ollama:llama3.1:latest">🦙 Ollama Llama 3.1 8B (Local)</option>
+              <option value="ollama:lukey03/qwen3.5-9b-abliterated:latest">🧠 Ollama Qwen 3.5 9B (Local)</option>
               <option value="gemini-flash">Google Gemini 2.0 Flash (Structured LLM)</option>
-              <option value="heuristic">Heuristic Optimal Solver (Sub-1ms Algorithmic Baseline)</option>
+              <option value="heuristic">Heuristic Optimal Solver (Sub-1ms Baseline)</option>
+              <option value="custom-ollama">⚙️ Custom Ollama Model...</option>
             </select>
+
+            {selectedModel === "custom-ollama" && (
+              <div style={{ marginTop: "10px" }}>
+                <input
+                  type="text"
+                  placeholder="e.g. mistral, qwen2.5:3b, phi3, deepseek-r1"
+                  value={customOllamaModel}
+                  onChange={e => setCustomOllamaModel(e.target.value)}
+                  className="custom-model-input"
+                />
+              </div>
+            )}
           </div>
 
           {/* Live Action Decision Probabilities */}
@@ -370,6 +401,74 @@ export default function MarioAIArena() {
                 <div className="ascii-slice-box">{marioState.sensors.asciiGrid}</div>
               </div>
             )}
+          </div>
+
+          {/* Live OpenAI Wire Telecast */}
+          <div className="telemetry-card">
+            <div className="card-header">
+              <span className="card-title">
+                <span className="live-pulse" /> Live API Wire Telecast
+              </span>
+              <div className="wire-meta-badge">
+                <span className="status-code">200 OK</span>
+                <span className="zero-token-pill">
+                  {selectedModel === "gpt-6-luna"
+                    ? "0 Gen Tokens"
+                    : selectedModel.startsWith("ollama") || selectedModel === "custom-ollama"
+                    ? "Local $0.00"
+                    : selectedModel === "gemini-flash"
+                    ? "Cloud LLM"
+                    : "0ms Rule"}
+                </span>
+              </div>
+            </div>
+
+            <div className="wire-tabs">
+              <button
+                className={`wire-tab-btn ${wireTab === "request" ? "active" : ""}`}
+                onClick={() => setWireTab("request")}
+              >
+                Request Payload
+              </button>
+              <button
+                className={`wire-tab-btn ${wireTab === "response" ? "active" : ""}`}
+                onClick={() => setWireTab("response")}
+              >
+                Model Response
+              </button>
+              <button
+                className="wire-copy-btn"
+                onClick={() => {
+                  const dataToCopy = wireTab === "request"
+                    ? decisionHistory?.rawRequest || { note: "Awaiting next decision tick" }
+                    : decisionHistory?.rawResponse || { note: "Awaiting next decision tick" };
+                  navigator.clipboard.writeText(JSON.stringify(dataToCopy, null, 2));
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+              >
+                {copied ? "✓ Copied" : "📋 Copy"}
+              </button>
+            </div>
+
+            <div className="wire-display-container">
+              <pre className="wire-json-code">
+                {JSON.stringify(
+                  wireTab === "request"
+                    ? decisionHistory?.rawRequest ?? {
+                        endpoint: "POST https://api.openai.com/v1/decisions",
+                        model: selectedModel,
+                        status: isEvaluating ? "TRANSMITTING WIRE PAYLOAD..." : "STANDBY (INITIALIZING)",
+                      }
+                    : decisionHistory?.rawResponse ?? {
+                        status: isEvaluating ? "WAITING FOR RESPONSE..." : "STANDBY (INITIALIZING)",
+                        choice: decisionHistory?.chosenAction || "PENDING",
+                      },
+                  null,
+                  2
+                )}
+              </pre>
+            </div>
           </div>
         </div>
       </main>

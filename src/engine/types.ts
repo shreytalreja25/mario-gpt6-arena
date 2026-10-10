@@ -76,4 +76,6 @@ export interface DecisionResponse {
   reasoning: string;
   probabilities: Record<string, number>;
   costUsd: number;
+  rawRequest?: any;
+  rawResponse?: any;
 }
